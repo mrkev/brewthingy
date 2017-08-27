@@ -4,7 +4,6 @@
 
 const split = require('split');
 const spawn = require('child_process').spawn;
-const KNEXT = 'next next'
 
 const getDeps = function (onLine, onDone) {
   const cmd = `brew list | while read cask; do echo -n $cask; brew deps $cask | awk '{printf(" %s", $0)}'; echo ""; done`
@@ -19,41 +18,6 @@ const getDeps = function (onLine, onDone) {
   child.on('close', onDone || function () {});
 }
 
-// const json = {
-//   nodes: [{
-//     name: 'first',
-//     deps: ['hi']
-//   }],
-
-//   links: [
-//     // source, target, value
-//   ],
-
-//   index: {
-//     [KNEXT]: 1 //index of next entry
-//   },
-
-//   // todo: allows for duplicates
-//   addNode(node) {
-//     this.nodes.push(node)
-//     this.index[node.name] = this.index[KNEXT]++
-//       node.deps.forEach(depname => {
-//         if (!this.index[depname]) {
-//           this.nodes.push({
-//             name: depname
-//           })
-//           this.index[depname] = this.index[KNEXT]++
-//         }
-//         this.links.push({
-//           source: this.index[node.name],
-//           target: this.index[depname],
-//           value: 1,
-//         })
-//       })
-//   }
-// }
-
-
 const db2 = {
   nodes: {},
   links: [],
@@ -63,7 +27,11 @@ const db2 = {
   },
 
   addNode(node) {
-    this.nodes[node.name] = node;
+    if (!this.nodes[node.name]) {
+      this.nodes[node.name] = node;
+    } else {
+      this.nodes[node.name].deps = node.deps
+    }
     node.deps.forEach(depname => {
       if (!this.nodes[depname]) {
         this.nodes[depname] = {
@@ -79,7 +47,6 @@ const db2 = {
 }
 
 
-
 /**
  * D3 !!!
  */
@@ -89,95 +56,34 @@ const width = 960,
 
 const svg = d3.select("#graph").append("svg")
   .attr("width", width)
-  .attr("height", height);
+  .attr("height", height)
 
-// const force = d3.layout.force()
-//   .gravity(0.05)
-//   .distance(100)
-//   .charge(-100)
-//   .size([width, height]);
-
-// force
-//   .nodes(json.nodes)
-//   .links(json.links)
-//   .start();
-
-// var node = svg.selectAll(".node")
-//   .data(json.nodes)
-
-// var link = svg.selectAll(".link")
-//   .data(json.links)
-
-// force.on("tick", function () {
-//   link.attr("x1", function (d) {
-//       return d.source.x;
-//     })
-//     .attr("y1", function (d) {
-//       return d.source.y;
-//     })
-//     .attr("x2", function (d) {
-//       return d.target.x;
-//     })
-//     .attr("y2", function (d) {
-//       return d.target.y;
-//     });
-
-//   node.attr("transform", function (d) {
-//     return "translate(" + d.x + "," + d.y + ")";
-//   });
-// });
-
-// function draw() {
-
-//   var node = svg.selectAll(".node")
-//     .data(json.nodes)
-
-//   var link = svg.selectAll(".link")
-//     .data(json.links)
-
-//   link.enter()
-//     .append("line")
-//     .attr("class", "link");
-
-//   node.enter()
-//     .append("g")
-//     .attr("class", "node")
-//     .call(force.drag)
-//     .append("image")
-//     .attr("xlink:href", "https://github.com/favicon.ico")
-//     .attr("x", -8)
-//     .attr("y", -8)
-//     .attr("width", 16)
-//     .attr("height", 16);
-
-//   node.append("text")
-//     .attr("dx", 12)
-//     .attr("dy", ".35em")
-//     .text(d => d.name);
-
-//   node.exit().remove()
-//   link.exit().remove()
-
-// }
-
-
-
-var color = d3.scaleOrdinal(d3.schemeCategory10)
+  svg.append("svg:defs").append("svg:marker")
+  .attr("id", "triangle")
+  .attr("refX", 12)
+  .attr("refY", 3)
+  .attr("markerWidth", 30)
+  .attr("markerHeight", 30)
+  .attr("orient", "auto")
+  .append("path")
+  .attr("d", "M 0 0 6 3 0 6 1.5 3")
+  .style("fill", "black");
+  
 let nodes = db2.nodes()
 let links = db2.links
 
 console.log(nodes, links)
 
 var simulation = d3.forceSimulation(nodes)
-  .force("charge", d3.forceManyBody().strength(-100))
-  .force("link", d3.forceLink(links).distance(50))
+  .force("charge", d3.forceManyBody().strength(-150))
+
+  .force("link", d3.forceLink(links).distance(100))
   .force("x", d3.forceX())
   .force("y", d3.forceY())
   .alphaTarget(1)
-  .on("tick", function ticked () {
+  .on("tick", function ticked() {
     node
-      .attr("cx", d => d.x)
-      .attr("cy", d => d.y)
+      .attr("transform", d => `translate(${d.x},${d.y})`);
 
     link
       .attr("x1", d => d.source.x)
@@ -187,28 +93,61 @@ var simulation = d3.forceSimulation(nodes)
   });
 
 var g = svg.append("g").attr("transform", "translate(" + width / 2 + "," + height / 2 + ")"),
-  link = g.append("g").attr("stroke", "#000").attr("stroke-width", 1.5).selectAll(".link"),
-  node = g.append("g").attr("stroke", "#fff").attr("stroke-width", 1.5).selectAll(".node");
-  
+  link = g.append("g").attr("class", 'layer_links').selectAll(".link"),
+  node = g.append("g").attr("class", 'layer_nodes').selectAll(".node");
+
+d3.select(".layer_nodes")
+  .call(d3.drag()
+    .subject(dragsubject)
+    .on("start", dragstarted)
+    .on("drag", dragged)
+    .on("end", dragended));
+
 draw();
 
 function draw() {
   const nodes = db2.nodes()
   const links = db2.links
   // Apply the general update pattern to the nodes.
-  node = node.data(nodes, d => d.id);
+  node = node.data(nodes, d => d.name);
   node.exit().remove();
-  node = node.enter()
-    .append("circle")
-    .attr("fill", d => color(d.id))
-    .attr("r", 8)
+
+  node = node.enter().append("g")
+    .attr('class', 'node')
     .merge(node)
 
+  node.append('circle')
+    .attr('r', 8)
+
+  node.append("text")
+    .attr("dx", 12)
+    .attr("dy", ".35em")
+    .text(d => d.name)
+    .call(function getBB(selection) {
+      selection.each((d, i) => d.bbox = selection.nodes()[i].getBBox())
+    })
+
+  node.insert("rect", "text")
+    .attr("width", function (d) {
+      return d.bbox.width
+    })
+    .attr("height", function (d) {
+      return d.bbox.height
+    })
+    .attr("x", 12)
+    .attr("y", "-.35em")
+    .style("fill", "yellow");
+
+
+
   // Apply the general update pattern to the links.
-  link = link.data(links, d => d.source.id + "-" + d.target.id);
-  
+  link = link.data(links, d => d.source.name + "-" + d.target.name);
   link.exit().remove();
-  link = link.enter().append("line").merge(link);
+  link = link.enter()
+    .append("line")
+    .attr("marker-end", "url(#triangle)")
+    .attr('class', 'link')
+    .merge(link);
   // Update and restart the simulation.
   simulation.nodes(nodes);
   simulation.force("link").links(links);
@@ -230,3 +169,25 @@ getDeps(({
 
   draw();
 })
+
+
+function dragstarted() {
+  if (!d3.event.active) simulation.alphaTarget(0.3).restart();
+  d3.event.subject.fx = d3.event.subject.x;
+  d3.event.subject.fy = d3.event.subject.y;
+}
+
+function dragged() {
+  d3.event.subject.fx = d3.event.x;
+  d3.event.subject.fy = d3.event.y;
+}
+
+function dragended() {
+  if (!d3.event.active) simulation.alphaTarget(0);
+  d3.event.subject.fx = null;
+  d3.event.subject.fy = null;
+}
+
+function dragsubject() {
+  return simulation.find(d3.event.x, d3.event.y);
+}
